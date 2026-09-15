@@ -7,18 +7,6 @@ local queue = queue_on_teleport or (syn and syn.queue_on_teleport) or queueontel
 
 local function runMasterHelper()
     -- 1. Anti-AFK (Mencegah kick 20 menit idle)
-    task.spawn(function()
-        local VirtualUser = game:GetService("VirtualUser")
-        local Players = game:GetService("Players")
-        local lp = Players.LocalPlayer
-        lp.Idled:Connect(function()
-            pcall(function()
-                VirtualUser:CaptureController()
-                VirtualUser:ClickButton2(Vector2.zero)
-            end)
-        end)
-    end)
-
     -- 2. Auto-Reconnect jika muncul layar Disconnected
     task.spawn(function()
         local GuiService = game:GetService("GuiService")
