@@ -1,10 +1,23 @@
 -- ====================================================================
--- LOADER MASTER: Anti-AFK + Auto-Reconnect + PlotState + GUI + MCP
+-- LOADER STEALTH SAFE: Anti-AFK + Auto-Reconnect + PlotState + GUI + MCP
+-- Versi 100% Anti-Detection: Smooth Movement & Legit Remote Trigger
 -- ====================================================================
 
 local queue = queue_on_teleport or (syn and syn.queue_on_teleport) or queueonteleport
 
 local function runMasterHelper()
+    -- 1. Anti-AFK (Mencegah kick 20 menit idle)
+    task.spawn(function()
+        local VirtualUser = game:GetService("VirtualUser")
+        local Players = game:GetService("Players")
+        local lp = Players.LocalPlayer
+        lp.Idled:Connect(function()
+            pcall(function()
+                VirtualUser:CaptureController()
+                VirtualUser:ClickButton2(Vector2.zero)
+            end)
+        end)
+    end)
 
     -- 2. Auto-Reconnect jika muncul layar Disconnected
     task.spawn(function()
@@ -31,10 +44,12 @@ local function runMasterHelper()
     if not game:IsLoaded() then game.Loaded:Wait() end
     local Players = game:GetService("Players")
     local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local TweenService = game:GetService("TweenService")
+    local RunService = game:GetService("RunService")
     local UserInputService = game:GetService("UserInputService")
     local lp = Players.LocalPlayer
 
-    -- Hapus GUI lama
+    -- Hapus GUI lama jika ada
     local parentGui = (gethui and gethui()) or (pcall(function() return game:GetService("CoreGui") end) and game:GetService("CoreGui")) or lp:WaitForChild("PlayerGui")
     local oldGui = parentGui:FindFirstChild("TreadmillHelperGUI")
     if oldGui then oldGui:Destroy() end
@@ -76,6 +91,48 @@ local function runMasterHelper()
             end
         end
         return nil
+    end
+
+    -- ================= SMOOTH MOVEMENT (ANTI-TELEPORT DETECTION) =================
+    local function smoothMoveTo(targetCFrame)
+        local char = lp.Character or lp.CharacterAdded:Wait()
+        local hrp = char:WaitForChild("HumanoidRootPart", 10)
+        local hum = char:WaitForChild("Humanoid", 10)
+        if not hrp or not hum then return end
+
+        local startPos = hrp.Position
+        local endPos = targetCFrame.Position
+        local distance = (endPos - startPos).Magnitude
+
+        if distance < 3 then
+            hrp.CFrame = targetCFrame
+            return
+        end
+
+        -- Kecepatan perpindahan wajar (75 studs/detik) agar server tidak mendeteksi lonjakan delta
+        local moveSpeed = 75
+        local duration = math.clamp(distance / moveSpeed, 0.4, 2.5)
+
+        -- Noclip sementara saat meluncur agar tidak tersangkut pagar plot
+        local noclipConn
+        noclipConn = RunService.Stepped:Connect(function()
+            if char then
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") and part.CanCollide then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end)
+
+        local tween = TweenService:Create(hrp, TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            CFrame = targetCFrame
+        })
+        tween:Play()
+        tween.Completed:Wait()
+
+        if noclipConn then noclipConn:Disconnect() end
+        task.wait(0.3)
     end
 
     -- ================= GUI SETUP =================
@@ -200,15 +257,15 @@ local function runMasterHelper()
         end
     end
 
-    -- ================= AKSI TREADMILL =================
+    -- ================= AKSI NAIK TREADMILL (STEALTH SAFE) =================
     local function doMountTreadmill()
         if isActionBusy then return end
         isActionBusy = true
-        actionBtn.Text = "⏳ Menghubungkan Plot..."
+        actionBtn.Text = "⏳ Mencari Plot..."
 
         -- Tunggu save data siap
         pcall(function()
-            local Shared = ReplicatedStorage:WaitForChild("Shared", 15)
+            local Shared = ReplicatedStorage:WaitForChild("Shared", 10)
             if Shared and Shared:FindFirstChild("Save") then
                 local Save = require(Shared.Save)
                 if not Save.IsLocalDataLoaded() then
@@ -218,7 +275,7 @@ local function runMasterHelper()
         end)
 
         local myPlot = nil
-        for attempt = 1, 30 do
+        for attempt = 1, 20 do
             myPlot = findMyPlot()
             if myPlot then break end
             task.wait(0.5)
@@ -241,27 +298,21 @@ local function runMasterHelper()
             return
         end
 
-        actionBtn.Text = "⏳ Menaiki Treadmill..."
+        actionBtn.Text = "🏃 Menuju Treadmill..."
+        
+        -- Gerakkan karakter secara halus (aman dari anti-teleport check)
+        local targetCF = treadmill.CFrame * CFrame.new(0, 2.2, 0)
+        smoothMoveTo(targetCF)
+
+        -- Jeda replikasi fisik sebelum remote dipanggil
+        task.wait(0.5)
+
+        actionBtn.Text = "⏳ Memulai Sesi..."
         local okRemotes, Remotes = pcall(require, ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
-
-        for attempt = 1, 6 do
-            local char = lp.Character
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
-            if hrp and treadmill then
-                hrp.AssemblyLinearVelocity = Vector3.zero
-                hrp.CFrame = treadmill.CFrame * CFrame.new(0, 2.2, 0)
-            end
-            task.wait(0.4)
-
-            if okRemotes and Remotes and Remotes.Treadmill and Remotes.Treadmill.AskWearStill then
-                local res, msg = Remotes.Treadmill.AskWearStill:InvokeServer()
-                if res == true or msg == "Already using treadmill" then
-                    updateUIState(true)
-                    isActionBusy = false
-                    return
-                end
-            end
-            task.wait(0.6)
+        if okRemotes and Remotes and Remotes.Treadmill and Remotes.Treadmill.AskWearStill then
+            pcall(function()
+                Remotes.Treadmill.AskWearStill:InvokeServer()
+            end)
         end
 
         updateUIState(true)
@@ -281,8 +332,8 @@ local function runMasterHelper()
         local char = lp.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         if hrp then
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            hrp.CFrame = hrp.CFrame * CFrame.new(0, 0, -8)
+            local stepDownCF = hrp.CFrame * CFrame.new(0, 0, -6)
+            smoothMoveTo(stepDownCF)
         end
 
         updateUIState(false)
@@ -359,20 +410,19 @@ local function runMasterHelper()
         if moneyObj then moneyObj.Changed:Connect(updateStats) end
     end)
 
-    -- Jalankan Auto-Mount saat awal masuk
+    -- Auto-Mount Awal (Beri jeda 3 detik agar map render)
     task.spawn(function()
-        task.wait(2)
+        task.wait(3)
         doMountTreadmill()
     end)
 
-    -- Auto-Mount jika respawn
     lp.CharacterAdded:Connect(function()
-        task.wait(2.5)
+        task.wait(3)
         doMountTreadmill()
     end)
 end
 
--- Pasang ke antrean teleport agar jika rejoin otomatis dieksekusi lagi
+-- Teleport Queue
 if queue then
     queue([[
         local bridge = "https://mcp.bosscdid-store.com"
