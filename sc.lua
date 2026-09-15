@@ -1,12 +1,37 @@
 -- ====================================================================
--- LOADER ANTI-LAG: Steal An Egg Helper (MCP + Auto-Treadmill + GUI)
--- Dirancang khusus untuk Device / Emulator Lag & Low FPS
+-- LOADER MASTER: Anti-AFK + Auto-Reconnect + PlotState + GUI + MCP
 -- ====================================================================
 
 local queue = queue_on_teleport or (syn and syn.queue_on_teleport) or queueonteleport
 
-local function runHelper()
-    -- 1. Jalankan MCP Bridge di background
+local function runMasterHelper()
+    -- 1. Anti-AFK (Mencegah kick 20 menit idle)
+    task.spawn(function()
+        local VirtualUser = game:GetService("VirtualUser")
+        local Players = game:GetService("Players")
+        local lp = Players.LocalPlayer
+        lp.Idled:Connect(function()
+            pcall(function()
+                VirtualUser:CaptureController()
+                VirtualUser:ClickButton2(Vector2.zero)
+            end)
+        end)
+    end)
+
+    -- 2. Auto-Reconnect jika muncul layar Disconnected
+    task.spawn(function()
+        local GuiService = game:GetService("GuiService")
+        local TeleportService = game:GetService("TeleportService")
+        local Players = game:GetService("Players")
+        GuiService.ErrorMessageChanged:Connect(function()
+            task.wait(3)
+            pcall(function()
+                TeleportService:Teleport(game.PlaceId, Players.LocalPlayer)
+            end)
+        end)
+    end)
+
+    -- 3. Koneksi ke MCP Bridge
     task.spawn(function()
         pcall(function()
             getgenv().BridgeURL = "mcp.bosscdid-store.com"
@@ -14,19 +39,18 @@ local function runHelper()
         end)
     end)
 
-    -- 2. Tunggu game benar-benar selesai loading
+    -- 4. Tunggu game siap
     if not game:IsLoaded() then game.Loaded:Wait() end
     local Players = game:GetService("Players")
     local ReplicatedStorage = game:GetService("ReplicatedStorage")
     local UserInputService = game:GetService("UserInputService")
     local lp = Players.LocalPlayer
 
-    -- Hapus GUI lama jika ada
+    -- Hapus GUI lama
     local parentGui = (gethui and gethui()) or (pcall(function() return game:GetService("CoreGui") end) and game:GetService("CoreGui")) or lp:WaitForChild("PlayerGui")
     local oldGui = parentGui:FindFirstChild("TreadmillHelperGUI")
     if oldGui then oldGui:Destroy() end
 
-    -- Format Angka (1000000 -> 1,000,000)
     local function formatNumber(v)
         local n = tonumber(v) or 0
         local formatted = tostring(math.floor(n))
@@ -38,15 +62,27 @@ local function runHelper()
         return formatted
     end
 
-    -- ================= PENCARI PLOT (ANTI-LAG RETRY) =================
+    -- ================= PENCARI PLOT RESMI (PLOTSTATE) =================
     local function findMyPlot()
-        local plots = workspace:WaitForChild("Plots", 30)
+        local plots = workspace:WaitForChild("Plots", 20)
         if not plots then return nil end
 
-        -- Tunggu sampai teks nama pemain muncul di plot (bisa butuh waktu di device lag)
+        -- 1. Menggunakan PlotState game resmi (Instan & Akurat)
+        local ok, PlotState = pcall(function()
+            return require(ReplicatedStorage:WaitForChild("Client"):WaitForChild("PlotState"))
+        end)
+        if ok and PlotState and PlotState.ResolveLocalSlot then
+            local slot = PlotState.ResolveLocalSlot()
+            if slot then
+                local p = plots:FindFirstChild(tostring(slot))
+                if p then return p end
+            end
+        end
+
+        -- 2. Fallback pencocokan Username/DisplayName
         for _, plot in ipairs(plots:GetChildren()) do
             for _, desc in ipairs(plot:GetDescendants()) do
-                if desc:IsA("TextLabel") and desc.Text == lp.Name then
+                if desc:IsA("TextLabel") and (desc.Text == lp.Name or desc.Text == lp.DisplayName) then
                     return plot
                 end
             end
@@ -68,9 +104,7 @@ local function runHelper()
     mainFrame.BackgroundColor3 = Color3.fromRGB(20, 22, 28)
     mainFrame.BorderSizePixel = 0
     mainFrame.ClipsDescendants = true
-
-    local corner = Instance.new("UICorner", mainFrame)
-    corner.CornerRadius = UDim.new(0, 12)
+    Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 12)
 
     local stroke = Instance.new("UIStroke", mainFrame)
     stroke.Color = Color3.fromRGB(0, 200, 255)
@@ -82,8 +116,7 @@ local function runHelper()
     titleBar.Size = UDim2.new(1, 0, 0, 36)
     titleBar.BackgroundColor3 = Color3.fromRGB(28, 32, 42)
     titleBar.BorderSizePixel = 0
-    local titleCorner = Instance.new("UICorner", titleBar)
-    titleCorner.CornerRadius = UDim.new(0, 12)
+    Instance.new("UICorner", titleBar).CornerRadius = UDim.new(0, 12)
 
     local titleText = Instance.new("TextLabel", titleBar)
     titleText.Size = UDim2.new(1, -40, 1, 0)
@@ -104,10 +137,9 @@ local function runHelper()
     minBtn.TextSize = 16
     minBtn.Font = Enum.Font.GothamBold
     minBtn.BorderSizePixel = 0
-    local minCorner = Instance.new("UICorner", minBtn)
-    minCorner.CornerRadius = UDim.new(0, 6)
+    Instance.new("UICorner", minBtn).CornerRadius = UDim.new(0, 6)
 
-    -- Content
+    -- Content Frame
     local content = Instance.new("Frame", mainFrame)
     content.Size = UDim2.new(1, -20, 1, -46)
     content.Position = UDim2.new(0, 10, 0, 42)
@@ -127,8 +159,7 @@ local function runHelper()
     statsBox.Position = UDim2.new(0, 0, 0, 24)
     statsBox.BackgroundColor3 = Color3.fromRGB(15, 17, 22)
     statsBox.BorderSizePixel = 0
-    local statsCorner = Instance.new("UICorner", statsBox)
-    statsCorner.CornerRadius = UDim.new(0, 8)
+    Instance.new("UICorner", statsBox).CornerRadius = UDim.new(0, 8)
     local statsStroke = Instance.new("UIStroke", statsBox)
     statsStroke.Color = Color3.fromRGB(45, 50, 65)
 
@@ -161,8 +192,7 @@ local function runHelper()
     actionBtn.TextSize = 13
     actionBtn.Font = Enum.Font.GothamBold
     actionBtn.BorderSizePixel = 0
-    local actionCorner = Instance.new("UICorner", actionBtn)
-    actionCorner.CornerRadius = UDim.new(0, 8)
+    Instance.new("UICorner", actionBtn).CornerRadius = UDim.new(0, 8)
 
     local isOnTreadmill = false
     local isActionBusy = false
@@ -182,13 +212,13 @@ local function runHelper()
         end
     end
 
-    -- ================= AKSI NAIK TREADMILL (ROBUST FOR LAG) =================
+    -- ================= AKSI TREADMILL =================
     local function doMountTreadmill()
         if isActionBusy then return end
         isActionBusy = true
-        actionBtn.Text = "⏳ Menunggu Plot..."
+        actionBtn.Text = "⏳ Menghubungkan Plot..."
 
-        -- 1. Tunggu save data game siap (Sangat penting di device lag!)
+        -- Tunggu save data siap
         pcall(function()
             local Shared = ReplicatedStorage:WaitForChild("Shared", 15)
             if Shared and Shared:FindFirstChild("Save") then
@@ -199,18 +229,16 @@ local function runHelper()
             end
         end)
 
-        -- 2. Loop mencari plot (Beri waktu sampai 60 detik)
         local myPlot = nil
-        for attempt = 1, 60 do
+        for attempt = 1, 30 do
             myPlot = findMyPlot()
             if myPlot then break end
-            actionBtn.Text = ("⏳ Mencari Plot (%ds)..."):format(attempt)
-            task.wait(1)
+            task.wait(0.5)
         end
 
         if not myPlot then
             actionBtn.Text = "⚠️ Plot Belum Siap"
-            task.wait(2)
+            task.wait(1.5)
             updateUIState(false)
             isActionBusy = false
             return
@@ -219,27 +247,23 @@ local function runHelper()
         local treadmill = myPlot:WaitForChild("TreadmillBottom", 15)
         if not treadmill then
             actionBtn.Text = "⚠️ Treadmill Hilang"
-            task.wait(2)
+            task.wait(1.5)
             updateUIState(false)
             isActionBusy = false
             return
         end
 
-        -- 3. Teleport & Invoke Remote (Ulangi beberapa kali untuk melawan rubberband)
         actionBtn.Text = "⏳ Menaiki Treadmill..."
         local okRemotes, Remotes = pcall(require, ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
 
-        for attempt = 1, 8 do
+        for attempt = 1, 6 do
             local char = lp.Character
             local hrp = char and char:FindFirstChild("HumanoidRootPart")
             if hrp and treadmill then
-                -- Tempelkan kaki pas di atas treadmill & nolkan velocity agar tidak memantul
                 hrp.AssemblyLinearVelocity = Vector3.zero
-                hrp.AssemblyAngularVelocity = Vector3.zero
                 hrp.CFrame = treadmill.CFrame * CFrame.new(0, 2.2, 0)
             end
-
-            task.wait(0.5)
+            task.wait(0.4)
 
             if okRemotes and Remotes and Remotes.Treadmill and Remotes.Treadmill.AskWearStill then
                 local res, msg = Remotes.Treadmill.AskWearStill:InvokeServer()
@@ -249,7 +273,7 @@ local function runHelper()
                     return
                 end
             end
-            task.wait(0.8)
+            task.wait(0.6)
         end
 
         updateUIState(true)
@@ -329,9 +353,9 @@ local function runHelper()
         end
     end)
 
-    -- Realtime Leaderstats Listener
+    -- Leaderstats Listener
     task.spawn(function()
-        local leaderstats = lp:WaitForChild("leaderstats", 30)
+        local leaderstats = lp:WaitForChild("leaderstats", 25)
         if not leaderstats then return end
 
         local speedObj = leaderstats:WaitForChild("Speed", 15)
@@ -347,19 +371,20 @@ local function runHelper()
         if moneyObj then moneyObj.Changed:Connect(updateStats) end
     end)
 
-    -- 3. Auto Naik Awal (Beri jeda 3 detik agar engine selesai render awal)
+    -- Jalankan Auto-Mount saat awal masuk
     task.spawn(function()
-        task.wait(3)
+        task.wait(2)
         doMountTreadmill()
     end)
 
+    -- Auto-Mount jika respawn
     lp.CharacterAdded:Connect(function()
-        task.wait(3)
+        task.wait(2.5)
         doMountTreadmill()
     end)
 end
 
--- Teleport Queue
+-- Pasang ke antrean teleport agar jika rejoin otomatis dieksekusi lagi
 if queue then
     queue([[
         local bridge = "https://mcp.bosscdid-store.com"
@@ -367,4 +392,4 @@ if queue then
     ]])
 end
 
-runHelper()
+runMasterHelper()
